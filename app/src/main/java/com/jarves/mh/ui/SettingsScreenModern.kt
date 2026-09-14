@@ -553,6 +553,8 @@ private fun ConnectionSettings(
     onModels: () -> Unit,
     onValidate: () -> Unit,
 ) {
+    val isLoginBased = selectedKind.protocol == com.jarves.mh.model.ProviderProtocol.CLAUDE_LOGIN ||
+        selectedKind.protocol == com.jarves.mh.model.ProviderProtocol.CODEX_LOGIN
     Surface(color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f), shape = RoundedCornerShape(14.dp)) {
         Row(Modifier.fillMaxWidth().padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(8.dp).background(
@@ -596,39 +598,74 @@ private fun ConnectionSettings(
         }
     }
 
-    OutlinedTextField(baseUrl, onBaseUrl, label = { Text("Base URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-    OutlinedTextField(model, onModel, label = { Text("Model name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-    OutlinedButton(onClick = onModels, enabled = baseUrl.isNotBlank() && apiKey.isNotBlank() && !isDiscovering, modifier = Modifier.fillMaxWidth().height(50.dp)) {
-        if (isDiscovering) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-        else Icon(if (models.isEmpty()) Icons.Default.Search else Icons.Default.KeyboardArrowDown, null, Modifier.size(18.dp))
-        Spacer(Modifier.width(7.dp))
-        Text(if (models.isEmpty()) "Find available models" else "Available models (${models.size})")
-    }
-    OutlinedTextField(
-        apiKey,
-        onApiKey,
-        label = { Text("API key") },
-        singleLine = true,
-        visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
-        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-        trailingIcon = {
-            IconButton(onClick = onToggleKey) { Icon(if (keyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility, "Show or hide key") }
-        },
-        modifier = Modifier.fillMaxWidth(),
-    )
-    if (status != null) {
-        Text(status, fontSize = 12.sp, color = if (statusOk) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
-    }
-    Button(
-        onClick = onValidate,
-        enabled = baseUrl.isNotBlank() && model.isNotBlank() && apiKey.isNotBlank() && !isDiscovering && !isValidating,
-        modifier = Modifier.fillMaxWidth().height(52.dp),
-    ) {
-        if (isValidating) {
-            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-            Spacer(Modifier.width(8.dp))
+    if (isLoginBased) {
+        Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+            shape = RoundedCornerShape(14.dp),
+        ) {
+            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "No API key needed",
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp,
+                )
+                val loginCmd = if (selectedKind.protocol == com.jarves.mh.model.ProviderProtocol.CODEX_LOGIN) "codex login" else "claude login"
+                Text(
+                    "Run  $loginCmd  in the terminal to log in with your subscription. The CLI stores the session automatically.",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
-        Text(if (isValidating) "Checking connection" else "Test connection and save")
+        if (status != null) {
+            Text(status, fontSize = 12.sp, color = if (statusOk) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
+        }
+        Button(
+            onClick = onValidate,
+            enabled = !isDiscovering && !isValidating,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+        ) {
+            if (isValidating) {
+                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(8.dp))
+            }
+            Text(if (isValidating) "Saving…" else "Save provider")
+        }
+    } else {
+        OutlinedTextField(baseUrl, onBaseUrl, label = { Text("Base URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(model, onModel, label = { Text("Model name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedButton(onClick = onModels, enabled = baseUrl.isNotBlank() && apiKey.isNotBlank() && !isDiscovering, modifier = Modifier.fillMaxWidth().height(50.dp)) {
+            if (isDiscovering) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            else Icon(if (models.isEmpty()) Icons.Default.Search else Icons.Default.KeyboardArrowDown, null, Modifier.size(18.dp))
+            Spacer(Modifier.width(7.dp))
+            Text(if (models.isEmpty()) "Find available models" else "Available models (${models.size})")
+        }
+        OutlinedTextField(
+            apiKey,
+            onApiKey,
+            label = { Text("API key") },
+            singleLine = true,
+            visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            trailingIcon = {
+                IconButton(onClick = onToggleKey) { Icon(if (keyVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility, "Show or hide key") }
+            },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        if (status != null) {
+            Text(status, fontSize = 12.sp, color = if (statusOk) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)
+        }
+        Button(
+            onClick = onValidate,
+            enabled = baseUrl.isNotBlank() && model.isNotBlank() && apiKey.isNotBlank() && !isDiscovering && !isValidating,
+            modifier = Modifier.fillMaxWidth().height(52.dp),
+        ) {
+            if (isValidating) {
+                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                Spacer(Modifier.width(8.dp))
+            }
+            Text(if (isValidating) "Checking connection" else "Test connection and save")
+        }
     }
 }
 

@@ -1027,7 +1027,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun finishOnboarding(profile: ProviderProfile, secret: String) {
         vault.put(profile.kind.name, secret)
         val saved = profile.copy(
-            hasSecret = secret.isNotBlank() || vault.contains(profile.kind.name) || profile.kind == ProviderKind.CLAUDE,
+            hasSecret = secret.isNotBlank() || vault.contains(profile.kind.name) || profile.kind.protocol == com.jarves.mh.model.ProviderProtocol.CLAUDE_LOGIN || profile.kind.protocol == com.jarves.mh.model.ProviderProtocol.CODEX_LOGIN,
         )
         preferences.saveProvider(saved)
         preferences.onboardingComplete = true

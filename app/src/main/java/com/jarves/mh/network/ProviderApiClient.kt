@@ -55,6 +55,12 @@ class ProviderApiClient {
         protocol: ProviderProtocol,
         discoveredModels: List<DiscoveredModel>,
     ): ConnectionValidation = withContext(Dispatchers.IO) {
+        if (protocol == ProviderProtocol.CLAUDE_LOGIN) {
+            return@withContext ConnectionValidation.Success("Claude subscription mode — run 'claude login' in the terminal to authenticate.")
+        }
+        if (protocol == ProviderProtocol.CODEX_LOGIN) {
+            return@withContext ConnectionValidation.Success("Codex subscription mode — run 'codex login' in the terminal to authenticate.")
+        }
         if (baseUrl.isBlank() || model.isBlank() || apiKey.isBlank()) {
             return@withContext ConnectionValidation.Failure("Base URL, model, and API key are required.")
         }

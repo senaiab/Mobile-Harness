@@ -981,6 +981,18 @@ class RuntimeInstaller(private val context: Context) {
         )
     }
 
+    suspend fun ensureCodexInstalled(
+        proot: File,
+        onProgress: suspend (String) -> Unit,
+    ) {
+        val codex = File(rootfs, "usr/local/bin/codex")
+        if (codex.isFile) return
+        onProgress("Installing Codex CLI…")
+        verifyGuest(proot, "npm install -g @openai/codex@latest --prefer-offline 2>&1 || npm install -g @openai/codex@latest", "Codex CLI could not be installed")
+        check(File(rootfs, "usr/local/bin/codex").isFile) { "Codex CLI was not found after install — check npm global prefix" }
+        onProgress("Codex CLI installed")
+    }
+
     fun ensureSettingsAndHooks() {
         val hook = File(rootfs, "opt/pocket/permission-hook.sh")
         hook.parentFile?.mkdirs()

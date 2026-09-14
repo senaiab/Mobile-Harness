@@ -103,7 +103,7 @@ class ClaudeRuntimeBridge(
         eventBus.emit(RuntimeEvent.SessionStarted(sessionId))
         pushForegroundProgress("Starting Claude Code…")
         val secret = secretFor(provider).orEmpty()
-        if (provider.kind != ProviderKind.CLAUDE && secret.isBlank()) {
+        if (!RuntimeLaunchConfigBuilder.isLoginBased(provider.kind.protocol) && secret.isBlank()) {
             eventBus.emit(RuntimeEvent.SessionFailed(sessionId, "No API key is saved for ${provider.kind.title}."))
             return@withContext sessionId
         }
@@ -138,23 +138,39 @@ class ClaudeRuntimeBridge(
             Log.d("ClaudeBridge", "Provider: ${provider.kind}, Model: ${provider.model}, BaseUrl: ${provider.baseUrl}")
             Log.d("ClaudeBridge", "Launch environment keys: ${launch.environment.keys}")
 
-            // Build a context-aware prompt that includes conversation history
+            if (provider.kind == ProviderKind.CODEX) {
+                pushForegroundProgress("Installing Codex CLI…")
+                installer.ensureCodexInstalled(installed.proot) { msg -> pushForegroundProgress(msg) }
+            }
+
             val guestWorkspacePath = "/workspace/$projectSlug"
             val contextPrompt = buildContextPrompt(prompt, conversationHistory, guestWorkspacePath, projectKind)
 
-            val command = buildList {
-                add(launch.executable)
-                add("--bare")
-                add("-p")
-                add(contextPrompt)
-                add("--output-format")
-                add("stream-json")
-                add("--include-partial-messages")
-                add("--verbose")
-                add("--model")
-                add(launch.environment["ANTHROPIC_MODEL"] ?: provider.model)
-                add("--max-turns")
-                add("25")
+            val command = if (provider.kind == ProviderKind.CODEX) {
+                buildList {
+                    add(launch.executable)
+                    add("--approval-mode")
+                    add("full-auto")
+                    add("--quiet")
+                    add("--model")
+                    add(provider.model.ifBlank { "codex-mini-latest" })
+                    add(contextPrompt)
+                }
+            } else {
+                buildList {
+                    add(launch.executable)
+                    add("--bare")
+                    add("-p")
+                    add(contextPrompt)
+                    add("--output-format")
+                    add("stream-json")
+                    add("--include-partial-messages")
+                    add("--verbose")
+                    add("--model")
+                    add(launch.environment["ANTHROPIC_MODEL"] ?: provider.model)
+                    add("--max-turns")
+                    add("25")
+                }
             }
             Log.d("ClaudeBridge", "Launching command: $command")
             val process = installer.process(
@@ -194,14 +210,18 @@ class ClaudeRuntimeBridge(
                             pendingOutput.delete(0, newline + 1)
                             if (line.isNotBlank()) {
                                 Log.d("ClaudeBridge", "OUTPUT: $line")
-                                ProviderRuntimeErrorDetector.detect(line)?.let { reason ->
-                                    process.destroyForcibly()
-                                    throw ProviderSessionException(reason)
-                                }
-                                if (!consumeClaudeEvent(sessionId, line)) {
-                                    lastDiagnostic = line.takeLast(500)
-                                    terminalStatus(line)?.let { (title, detail) ->
-                                        eventBus.emit(RuntimeEvent.RuntimeLog(sessionId, title, detail))
+                                if (provider.kind == ProviderKind.CODEX) {
+                                    consumeCodexLine(sessionId, line)
+                                } else {
+                                    ProviderRuntimeErrorDetector.detect(line)?.let { reason ->
+                                        process.destroyForcibly()
+                                        throw ProviderSessionException(reason)
+                                    }
+                                    if (!consumeClaudeEvent(sessionId, line)) {
+                                        lastDiagnostic = line.takeLast(500)
+                                        terminalStatus(line)?.let { (title, detail) ->
+                                            eventBus.emit(RuntimeEvent.RuntimeLog(sessionId, title, detail))
+                                        }
                                     }
                                 }
                             }
@@ -234,7 +254,7 @@ class ClaudeRuntimeBridge(
                     finishForegroundRuntime(
                         completed = true,
                         projectName = projectSlug,
-                        detail = "Claude Code finished the task in $projectSlug.",
+                        detail = "${if (provider.kind == ProviderKind.CODEX) "Codex" else "Claude Code"} finished the task in $projectSlug.",
                     )
                 } else {
                     if (userStopRequested) throw ProviderSessionException("Stopped by user")
@@ -380,6 +400,26 @@ class ClaudeRuntimeBridge(
                 }
             }
             delay(50)
+        }
+    }
+
+    private suspend fun consumeCodexLine(sessionId: String, line: String) {
+        val trimmed = line.trim()
+        when {
+            trimmed.startsWith("$ ") || trimmed.startsWith("% ") -> {
+                val cmd = trimmed.drop(2).trim()
+                eventBus.emit(RuntimeEvent.ToolStarted(sessionId, "Bash", sanitizeForDisplay(cmd)))
+                pushForegroundProgress("Running command · ${cmd.take(80)}")
+            }
+            trimmed.startsWith("[") && "]" in trimmed -> {
+                val tag = trimmed.substringAfter("[").substringBefore("]")
+                val detail = trimmed.substringAfter("]").trim()
+                eventBus.emit(RuntimeEvent.RuntimeLog(sessionId, tag, sanitizeForDisplay(detail.ifBlank { trimmed })))
+            }
+            trimmed.isNotBlank() -> {
+                eventBus.emit(RuntimeEvent.AssistantDelta(sessionId, "$trimmed\n"))
+                pushForegroundProgress("Codex is working…")
+            }
         }
     }
 
@@ -566,7 +606,7 @@ class ClaudeRuntimeBridge(
             finishForegroundRuntime(
                 completed = true,
                 projectName = activeProjectSlug ?: "your project",
-                detail = "Claude Code finished the task.",
+                detail = "Task finished successfully.",
             )
         }
     }
