@@ -981,6 +981,80 @@ class RuntimeInstaller(private val context: Context) {
         )
     }
 
+    fun processPty(
+        proot: File,
+        rootfs: File,
+        workspace: File,
+        environment: Map<String, String>,
+        guestCommand: List<String>,
+        guestWorkspacePath: String = "/workspace",
+    ): Process {
+        require(
+            guestWorkspacePath == "/workspace" ||
+                Regex("^/workspace/[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$").matches(guestWorkspacePath),
+        ) { "Invalid project workspace path" }
+        workspace.mkdirs()
+        File(rootfs, guestWorkspacePath.removePrefix("/")).mkdirs()
+        writeAndroidGradleConfiguration(rootfs)
+        ensureWorkspaceTrust(guestWorkspacePath)
+        val bridge = File(context.filesDir, "runtime-bridge").apply { mkdirs() }
+        val args = buildList {
+            add(proot.absolutePath)
+            add("--link2symlink")
+            add("-0")
+            add("-r")
+            add(rootfs.absolutePath)
+            add("-b")
+            add("/dev")
+            add("-b")
+            add("/proc")
+            add("-b")
+            add("/sys")
+            listOf("/system", "/apex", "/vendor", "/product").forEach { hostPath ->
+                if (File(hostPath).exists()) {
+                    File(rootfs, hostPath.removePrefix("/")).mkdirs()
+                    add("-b")
+                    add(hostPath)
+                }
+            }
+            add("-b")
+            add("${workspace.absolutePath}:$guestWorkspacePath")
+            add("-b")
+            add("${bridge.absolutePath}:/pocket-bridge")
+            add("-w")
+            add(guestWorkspacePath)
+            addAll(guestCommand)
+        }
+        val prootTemp = File(context.cacheDir, "proot-tmp").apply { mkdirs() }
+        return NativeSpawnProcess.startPty(
+            argv = args,
+            environment = buildMap {
+                put("HOME", "/root")
+                val androidReady = File(rootfs, "root/.pocket-android-tools-version").readTextOrNull() == ANDROID_TOOLS_VERSION
+                val basePath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+                if (androidReady) {
+                    put("ANDROID_HOME", "/root/android-sdk")
+                    put("ANDROID_SDK_ROOT", "/root/android-sdk")
+                    put("GRADLE_HOME", "/opt/gradle/gradle-8.14.3")
+                    put("GRADLE_USER_HOME", "/root/.gradle")
+                    put("ORG_GRADLE_PROJECT_android.aapt2FromMavenOverride", "/root/android-sdk/build-tools/35.0.0/aapt2")
+                    put("PATH", "/opt/gradle/gradle-8.14.3/bin:/root/android-sdk/build-tools/35.0.0:/root/android-sdk/cmdline-tools/latest/bin:$basePath")
+                } else {
+                    put("PATH", basePath)
+                }
+                put("LANG", "C.UTF-8")
+                put("TERM", "xterm-256color")
+                put("LD_LIBRARY_PATH", context.applicationInfo.nativeLibraryDir)
+                put("PROOT_NO_SECCOMP", "1")
+                put("PROOT_TMP_DIR", prootTemp.absolutePath)
+                put("PROOT_LOADER", File(context.applicationInfo.nativeLibraryDir, "libprootloader.so").absolutePath)
+                put("GLIBC_TUNABLES", "glibc.pthread.rseq=0")
+                putAll(environment)
+            },
+            cwd = context.filesDir.absolutePath,
+        )
+    }
+
     suspend fun ensureCodexInstalled(
         proot: File,
         onProgress: suspend (String) -> Unit,

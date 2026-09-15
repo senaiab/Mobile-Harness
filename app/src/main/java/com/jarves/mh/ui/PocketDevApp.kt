@@ -1538,6 +1538,10 @@ private fun RootScreenHost(
                     initialDebugUpdateManifestUrl = viewModel.debugUpdateManifestUrl(),
                     onSetDebugUpdateManifestUrl = viewModel::setDebugUpdateManifestUrl,
                     onClearDebugUpdateManifestUrl = viewModel::clearDebugUpdateManifestUrl,
+                    onLoginWithCli = { cmd ->
+                        viewModel.runTerminalCommandPty(cmd)
+                        screen = RootScreen.TERMINAL
+                    },
                 )
             }
         }
@@ -1789,6 +1793,7 @@ private fun ProviderChoiceRow(
 ) {
     val accent = when (provider) {
         ProviderKind.CLAUDE -> Color(0xFFD97757)
+        ProviderKind.CODEX -> Color(0xFF10A37F)
         ProviderKind.ANTHROPIC -> Color(0xFFE7A26D)
         ProviderKind.LLM_ROUTER -> Color(0xFF5B8DEF)
         ProviderKind.DEEPSEEK -> Color(0xFF4D6BFE)
@@ -1797,6 +1802,7 @@ private fun ProviderChoiceRow(
     }
     val mark = when (provider) {
         ProviderKind.CLAUDE -> "C"
+        ProviderKind.CODEX -> "CX"
         ProviderKind.ANTHROPIC -> "A"
         ProviderKind.LLM_ROUTER -> "OR"
         ProviderKind.DEEPSEEK -> "DS"

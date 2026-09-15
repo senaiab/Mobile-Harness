@@ -331,6 +331,70 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun runTerminalCommandPty(cmd: String) {
+        val command = cmd.trim()
+        if (command.isBlank() || _isTerminalRunning.value) return
+        _isTerminalRunning.value = true
+        _terminalCurrentCommand.value = command
+        _terminalLiveOutput.value = ""
+        viewModelScope.launch {
+            val (output, exitCode) = withContext(Dispatchers.IO) {
+                runCatching {
+                    if (!installer.isInstalled()) {
+                        return@runCatching "Linux environment is not ready yet." to 1
+                    }
+                    val runtime = installer.installedRuntime()
+                    val workspace = File(getApplication<Application>().filesDir, "workspaces/terminal").apply { mkdirs() }
+                    val preparedCommand = prepareInteractiveShellCommand(command)
+                    val proc = installer.processPty(
+                        proot = runtime.proot,
+                        rootfs = runtime.rootfs,
+                        workspace = workspace,
+                        environment = emptyMap(),
+                        guestCommand = listOf("/usr/bin/bash", "-c", preparedCommand),
+                    )
+                    terminalProcess = proc
+                    val native = proc as? NativeSpawnProcess
+                    val masterFd = native?.ptyMasterFd ?: -1
+                    val streamed = StringBuilder()
+                    if (masterFd >= 0) {
+                        val pfd = android.os.ParcelFileDescriptor.fromFd(masterFd)
+                        val reader = java.io.FileInputStream(pfd.fileDescriptor)
+                        val buf = ByteArray(4096)
+                        while (proc.isAlive) {
+                            val n = runCatching { reader.read(buf) }.getOrDefault(-1)
+                            if (n > 0) {
+                                val chunk = buf.decodeToString(0, n)
+                                streamed.append(chunk)
+                                _terminalLiveOutput.value = sanitizeTerminalOutput(streamed.toString())
+                                    .trimEnd()
+                                    .takeLast(MAX_PROJECT_TERMINAL_OUTPUT)
+                            } else if (n < 0) break
+                            else Thread.sleep(20)
+                        }
+                        // drain remaining
+                        runCatching {
+                            val n = reader.read(buf)
+                            if (n > 0) streamed.append(buf.decodeToString(0, n))
+                        }
+                        runCatching { reader.close() }
+                        runCatching { pfd.close() }
+                    }
+                    val exit = proc.waitFor()
+                    runCatching { proc.outputStream.close() }
+                    val out = sanitizeTerminalOutput(streamed.toString()).trim()
+                    val finalOut = if (out.isNotEmpty() || exit == 0) out else "Process exited with code $exit"
+                    finalOut to exit
+                }.getOrElse { "Error: ${it.message}" to 1 }
+            }
+            _terminalLines.update { it + TerminalOutputLine(command = command, output = output, exitCode = exitCode) }
+            _terminalLiveOutput.value = ""
+            _terminalCurrentCommand.value = null
+            _isTerminalRunning.value = false
+            terminalProcess = null
+        }
+    }
+
     fun sendTerminalInput(text: String) {
         sendProcessInput(terminalProcess, text)
     }
@@ -497,14 +561,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         var offset = 0L
         val output = StringBuilder()
         var autoConfirmed = false
-        while (process.isAlive || native.outputFile.length() > offset) {
-            val available = native.outputFile.length() - offset
+        val nativeOutputFile = native.outputFile
+            ?: return ProjectTerminalResult("Unsupported terminal process (no output file).", 1, cwd)
+        while (process.isAlive || nativeOutputFile.length() > offset) {
+            val available = nativeOutputFile.length() - offset
             if (available <= 0) {
                 Thread.sleep(50)
                 continue
             }
             val bytes = ByteArray(minOf(available, 16L * 1024).toInt())
-            val count = RandomAccessFile(native.outputFile, "r").use { file ->
+            val count = RandomAccessFile(nativeOutputFile, "r").use { file ->
                 file.seek(offset)
                 file.read(bytes)
             }

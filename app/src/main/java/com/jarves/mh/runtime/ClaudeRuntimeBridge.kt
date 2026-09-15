@@ -189,15 +189,17 @@ class ClaudeRuntimeBridge(
                 val pendingOutput = StringBuilder()
                 val nativeProcess = process as? NativeSpawnProcess
                     ?: error("Unsupported Android runtime process")
+                val nativeOutputFile = nativeProcess.outputFile
+                    ?: error("Runtime process has no output file")
                 var outputOffset = 0L
-                while (process.isAlive || nativeProcess.outputFile.length() > outputOffset) {
-                    val available = nativeProcess.outputFile.length() - outputOffset
+                while (process.isAlive || nativeOutputFile.length() > outputOffset) {
+                    val available = nativeOutputFile.length() - outputOffset
                     if (available <= 0) {
                         delay(50)
                         continue
                     }
                     val bytes = ByteArray(minOf(available, 16L * 1024).toInt())
-                    val count = RandomAccessFile(nativeProcess.outputFile, "r").use { file ->
+                    val count = RandomAccessFile(nativeOutputFile, "r").use { file ->
                         file.seek(outputOffset)
                         file.read(bytes)
                     }
