@@ -111,6 +111,7 @@ fun SettingsScreen(
     initialDebugUpdateManifestUrl: String = "",
     onSetDebugUpdateManifestUrl: (String) -> Unit = {},
     onClearDebugUpdateManifestUrl: () -> Unit = {},
+    onLoginWithCli: (command: String) -> Unit = {},
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -302,6 +303,7 @@ fun SettingsScreen(
                         onApiKey = { apiKey = it; status = null },
                         onToggleKey = { keyVisible = !keyVisible },
                         onModels = { if (models.isEmpty()) discoverModels() else showModels = true },
+                        onLoginWithCli = onLoginWithCli,
                         onValidate = {
                             scope.launch {
                                 isValidating = true
@@ -551,6 +553,7 @@ private fun ConnectionSettings(
     onApiKey: (String) -> Unit,
     onToggleKey: () -> Unit,
     onModels: () -> Unit,
+    onLoginWithCli: (command: String) -> Unit = {},
     onValidate: () -> Unit,
 ) {
     val isLoginBased = selectedKind.protocol == com.jarves.mh.model.ProviderProtocol.CLAUDE_LOGIN ||
@@ -599,6 +602,7 @@ private fun ConnectionSettings(
     }
 
     if (isLoginBased) {
+        val loginCmd = if (selectedKind.protocol == com.jarves.mh.model.ProviderProtocol.CODEX_LOGIN) "codex login" else "claude login"
         Surface(
             color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
             shape = RoundedCornerShape(14.dp),
@@ -609,13 +613,20 @@ private fun ConnectionSettings(
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 14.sp,
                 )
-                val loginCmd = if (selectedKind.protocol == com.jarves.mh.model.ProviderProtocol.CODEX_LOGIN) "codex login" else "claude login"
                 Text(
-                    "Run  $loginCmd  in the terminal to log in with your subscription. The CLI stores the session automatically.",
+                    "Tap Login below to authenticate with your subscription. A browser page will open to complete sign-in.",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+        OutlinedButton(
+            onClick = { onLoginWithCli(loginCmd) },
+            modifier = Modifier.fillMaxWidth().height(50.dp),
+        ) {
+            Icon(Icons.Default.Terminal, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text("Login with ${if (selectedKind.protocol == com.jarves.mh.model.ProviderProtocol.CODEX_LOGIN) "OpenAI" else "Anthropic"}")
         }
         if (status != null) {
             Text(status, fontSize = 12.sp, color = if (statusOk) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error)

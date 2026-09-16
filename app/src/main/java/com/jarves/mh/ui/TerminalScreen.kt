@@ -126,15 +126,16 @@ fun TerminalScreen(
         }
     }
     val submitCommand = {
-        if (commandInput.text.isNotBlank()) {
-            val submitted = commandInput.text
-            if (isRunning) {
-                onInput(submitted)
-            } else {
-                onRun(submitted)
-                commandHistory = (commandHistory + submitted).takeLast(50)
-                historyIndex = -1
-            }
+        val submitted = commandInput.text
+        if (isRunning) {
+            // When a process is running, always send input — blank means bare Enter
+            // which interactive programs (claude login menus etc.) need to confirm.
+            onInput(submitted)
+            commandInput = TextFieldValue()
+        } else if (submitted.isNotBlank()) {
+            onRun(submitted)
+            commandHistory = (commandHistory + submitted).takeLast(50)
+            historyIndex = -1
             commandInput = TextFieldValue()
         }
     }
@@ -445,26 +446,38 @@ fun TerminalScreen(
                     .padding(bottom = 10.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                TerminalKeyButton("↑", "Previous command") {
-                    commandHistory.getOrNull(if (historyIndex < 0) commandHistory.lastIndex else (historyIndex - 1).coerceAtLeast(0))?.let {
-                        historyIndex = if (historyIndex < 0) commandHistory.lastIndex else (historyIndex - 1).coerceAtLeast(0)
-                        commandInput = TextFieldValue(it, TextRange(it.length))
+                TerminalKeyButton("↑", "Previous command / menu up") {
+                    if (isRunning) {
+                        onInput("\u001b[A") // ANSI arrow-up escape sequence
+                    } else {
+                        commandHistory.getOrNull(if (historyIndex < 0) commandHistory.lastIndex else (historyIndex - 1).coerceAtLeast(0))?.let {
+                            historyIndex = if (historyIndex < 0) commandHistory.lastIndex else (historyIndex - 1).coerceAtLeast(0)
+                            commandInput = TextFieldValue(it, TextRange(it.length))
+                        }
                     }
                 }
-                TerminalKeyButton("↓", "Next command") {
-                    if (historyIndex >= 0) {
-                        historyIndex = (historyIndex + 1).takeIf { it < commandHistory.size } ?: -1
-                        commandInput = TextFieldValue(commandHistory.getOrNull(historyIndex) ?: "", TextRange((commandHistory.getOrNull(historyIndex) ?: "").length))
+                TerminalKeyButton("↓", "Next command / menu down") {
+                    if (isRunning) {
+                        onInput("\u001b[B") // ANSI arrow-down escape sequence
+                    } else {
+                        if (historyIndex >= 0) {
+                            historyIndex = (historyIndex + 1).takeIf { it < commandHistory.size } ?: -1
+                            commandInput = TextFieldValue(commandHistory.getOrNull(historyIndex) ?: "", TextRange((commandHistory.getOrNull(historyIndex) ?: "").length))
+                        }
                     }
                 }
                 TerminalIconKeyButton(Icons.Default.ArrowBack, "Move cursor left") {
-                    commandInput = commandInput.copy(selection = TextRange((commandInput.selection.start - 1).coerceAtLeast(0)))
+                    if (isRunning) onInput("\u001b[D") // ANSI arrow-left
+                    else commandInput = commandInput.copy(selection = TextRange((commandInput.selection.start - 1).coerceAtLeast(0)))
                 }
                 TerminalIconKeyButton(Icons.Default.ArrowForward, "Move cursor right") {
-                    commandInput = commandInput.copy(selection = TextRange((commandInput.selection.end + 1).coerceAtMost(commandInput.text.length)))
+                    if (isRunning) onInput("\u001b[C") // ANSI arrow-right
+                    else commandInput = commandInput.copy(selection = TextRange((commandInput.selection.end + 1).coerceAtMost(commandInput.text.length)))
                 }
                 TerminalKeyButton("ALT", "Alt modifier", active = altActive, fixedWidth = true) { altActive = !altActive }
-                TerminalKeyButton("ESC", "Escape") { commandInput = TextFieldValue() }
+                TerminalKeyButton("ESC", "Escape") {
+                    if (isRunning) onInput("\u001b") else commandInput = TextFieldValue()
+                }
                 TerminalKeyButton("CTRL", "Control modifier; press C to interrupt", active = ctrlActive, fixedWidth = true) {
                     ctrlActive = !ctrlActive
                     if (ctrlActive) openTerminalKeyboard()

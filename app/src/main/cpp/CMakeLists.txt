@@ -1,4 +1,21 @@
 cmake_minimum_required(VERSION 3.22.1)
+
+# NDK r27+ on aarch64 Linux hosts moved libatomic/libunwind into the clang
+# resource directory. Fix CMAKE_SYSTEM_LIBRARY_PATH BEFORE project() so the
+# CMake compiler-test link can find -latomic and -l:libunwind.a.
+if(CMAKE_ANDROID_NDK)
+    foreach(_host_tag "linux-aarch64" "linux-x86_64")
+        file(GLOB _CLANG_RT_DIRS
+            "${CMAKE_ANDROID_NDK}/toolchains/llvm/prebuilt/${_host_tag}/lib/clang/*/lib/aarch64-none-linux-android*"
+        )
+        if(_CLANG_RT_DIRS)
+            list(GET _CLANG_RT_DIRS 0 _CLANG_RT_DIR)
+            list(APPEND CMAKE_SYSTEM_LIBRARY_PATH "${_CLANG_RT_DIR}")
+            break()
+        endif()
+    endforeach()
+endif()
+
 project(mobile_harness_native C ASM)
 
 if(NOT ANDROID_ABI STREQUAL "arm64-v8a")
@@ -21,7 +38,7 @@ target_compile_definitions(talloc PRIVATE
     TALLOC_BUILD_VERSION_MINOR=4
     TALLOC_BUILD_VERSION_RELEASE=3
 )
-set_target_properties(talloc PROPERTIES OUTPUT_NAME talloc SOVERSION 2)
+set_target_properties(talloc PROPERTIES OUTPUT_NAME talloc)
 
 add_library(android-shmem SHARED "${SHM_ROOT}/shmem.c")
 target_include_directories(android-shmem PUBLIC "${SHM_ROOT}")

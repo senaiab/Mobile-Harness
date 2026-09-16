@@ -612,11 +612,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun sendProcessInput(process: Process?, text: String) {
-        if (process?.isAlive != true || text.isBlank()) return
+        if (process?.isAlive != true) return
+        val native = process as? NativeSpawnProcess
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
-                process.outputStream.write((text + "\n").toByteArray())
-                process.outputStream.flush()
+                if (native != null && native.ptyMasterFd >= 0) {
+                    // PTY mode: outputStream already wraps writePty. Escape sequences are
+                    // sent raw; regular text gets a trailing newline.
+                    val isEscape = text.startsWith("\u001b")
+                    val bytes = if (isEscape) text.toByteArray() else (text + "\n").toByteArray()
+                    process.outputStream.write(bytes)
+                    process.outputStream.flush()
+                } else {
+                    // Pipe mode: always append newline (blank = bare Enter).
+                    process.outputStream.write((text + "\n").toByteArray())
+                    process.outputStream.flush()
+                }
             }.onFailure {
                 _state.update { current -> current.copy(toastMessage = "This process is no longer accepting input.") }
             }

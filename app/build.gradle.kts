@@ -145,6 +145,24 @@ android {
             version = "3.22.1"
         }
     }
+    // NDK r27+ on aarch64 hosts moved libatomic/libunwind into the clang resource
+    // directory. Inject the search path so the CMake compiler test passes.
+    afterEvaluate {
+        val hostTag = if (System.getProperty("os.arch")?.contains("aarch64") == true)
+            "linux-aarch64" else "linux-x86_64"
+        val ndkVer = providers.gradleProperty("mhNdkVersion").orNull ?: ndkVersion
+        val ndkBase = "${android.sdkDirectory.absolutePath}/ndk/$ndkVer"
+        val clangBase = File("$ndkBase/toolchains/llvm/prebuilt/$hostTag/lib/clang")
+        val rtDir = clangBase.listFiles()?.firstOrNull()?.let { clangVer ->
+            clangVer.walkTopDown().firstOrNull { f -> f.isDirectory && f.name.startsWith("aarch64-none-linux-android") }
+        }
+        if (rtDir != null) {
+            val lflags = "-L${rtDir.absolutePath}"
+            android.defaultConfig.externalNativeBuild.cmake.also { cmake ->
+                cmake.arguments("-DCMAKE_EXE_LINKER_FLAGS=$lflags", "-DCMAKE_SHARED_LINKER_FLAGS=$lflags")
+            }
+        }
+    }
     packaging.resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     packaging.jniLibs.useLegacyPackaging = true
     androidResources.noCompress += "zst"
